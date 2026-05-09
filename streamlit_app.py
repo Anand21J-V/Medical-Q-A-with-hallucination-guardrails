@@ -61,30 +61,14 @@ if "web_trigger_count" not in st.session_state:
 
 
 # ── Sidebar: ingest + stats ───────────────────────────────────────────────────
+    # ── Sidebar: stats only (book is pre-ingested, no upload needed) ─────────────
 with st.sidebar:
-    st.header("Ingest a book")
-    uploaded_file = st.file_uploader(
-        "Upload PDF / EPUB / TXT", type=["pdf", "epub", "txt", "md"]
-    )
-    if uploaded_file and st.button("Ingest"):
-        with st.spinner("Ingesting..."):
-            resp = requests.post(
-                f"{API_BASE}/ingest",
-                files={"file": (uploaded_file.name, uploaded_file, "application/octet-stream")},
-                timeout=300,
-            )
-        if resp.ok:
-            data = resp.json()
-            st.success(
-                f"Done! {data['chunks_upserted']} chunks added. "
-                f"Collection: {data['collection_size']} total."
-            )
-        else:
-            st.error(f"Ingestion failed: {resp.text}")
-
+    st.header("📚 Knowledge Base")
+    st.info("Medical book is pre-loaded on the backend. No upload needed.")
+    
     st.divider()
     st.header("Session stats")
-
+    
     total_q = len(st.session_state.history)
     web_count = st.session_state.web_trigger_count
     correction_rate = (
