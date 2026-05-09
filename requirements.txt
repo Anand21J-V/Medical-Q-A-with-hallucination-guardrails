@@ -1,0 +1,41 @@
+# Core LLM & orchestration
+langgraph==0.2.55
+langchain==0.3.12
+langchain-groq==0.2.3
+langchain-community==0.3.12
+langchain-chroma==0.1.4
+
+# Vector store
+chromadb==0.5.23
+
+# Embeddings (local, no API cost)
+sentence-transformers==3.3.1
+
+# Web search fallback
+tavily-python==0.5.0
+
+# Document ingestion
+pymupdf==1.25.1          # PDF parsing (fitz)
+ebooklib==0.18           # EPUB parsing
+beautifulsoup4==4.12.3   # HTML/EPUB content extraction
+
+# API layer
+fastapi==0.115.6
+uvicorn[standard]==0.32.1
+python-multipart==0.0.18  # file upload support
+
+# Config & validation
+pydantic==2.10.4
+pydantic-settings==2.7.0
+python-dotenv==1.0.1
+
+# Observability
+structlog==24.4.0
+
+# Demo UI
+streamlit==1.41.1
+
+# Testing
+pytest==8.3.4
+pytest-asyncio==0.24.0
+httpx==0.28.1            # async test client for FastAPI
