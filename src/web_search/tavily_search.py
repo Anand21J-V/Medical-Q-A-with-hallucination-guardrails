@@ -94,7 +94,7 @@ class TavilySearcher:
         try:
             response = self._client.search(
                 query=query,
-                search_depth="advanced",
+                search_depth="basic",
                 max_results=self._max_results,
                 include_answer=False,
             )

@@ -20,7 +20,7 @@ class Settings(BaseSettings):
     # ── LLM ──────────────────────────────────────────────────────────────
     groq_api_key: str = Field(..., description="Groq API key")
     groq_model: str = Field(
-        default="llama-3.3-70b-versatile",
+        default="llama-3.1-8b-instant",
         description="Groq model identifier",
     )
     groq_temperature: float = Field(default=0.0, ge=0.0, le=1.0)
