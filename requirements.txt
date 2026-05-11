@@ -39,3 +39,8 @@ streamlit==1.41.1
 pytest==8.3.4
 pytest-asyncio==0.24.0
 httpx==0.28.1            # async test client for FastAPI
+
+# Database (For Storing the Long Term Memory and Session Data and Short Term Memory)
+supabase>=2.4.0
+
+pyngrok

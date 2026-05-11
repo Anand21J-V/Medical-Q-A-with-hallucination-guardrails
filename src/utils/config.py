@@ -26,6 +26,10 @@ class Settings(BaseSettings):
     groq_temperature: float = Field(default=0.0, ge=0.0, le=1.0)
     groq_max_tokens: int = Field(default=1024, gt=0)
 
+    # ── Supabase ──────────────────────────────────────────────────────────────
+    supabase_url: str = Field(..., description="Supabase project URL")
+    supabase_service_key: str = Field(..., description="Supabase service role key")
+    
     # ── Web Search ────────────────────────────────────────────────────────
     tavily_api_key: str = Field(..., description="Tavily API key")
     tavily_max_results: int = Field(default=5, gt=0)

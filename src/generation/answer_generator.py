@@ -3,6 +3,13 @@ src/generation/answer_generator.py
 
 Synthesises the final answer from graded local documents, web results, or both.
 Handles all three CRAG paths: HIGH (local only), LOW (web only), AMBIGUOUS (fusion).
+
+Memory integration
+------------------
+Both `stm_context` (recent conversation turns) and `ltm_context` (durable user
+facts) are accepted as optional keyword arguments in every public `generate_*`
+method.  When present they are prepended to the system prompt so the LLM can
+personalise its answer and avoid repeating information the user already has.
 """
 
 from __future__ import annotations
@@ -10,8 +17,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Sequence
 
-from langchain_groq import ChatGroq
 from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_groq import ChatGroq
 
 from configs.prompts import (
     ANSWER_GENERATOR_HUMAN,
@@ -20,9 +27,9 @@ from configs.prompts import (
     FUSION_SYSTEM,
 )
 from src.grading.relevance_grader import GradedChunk
-from src.web_search.tavily_search import WebResult
 from src.utils.config import get_settings
 from src.utils.logger import get_logger
+from src.web_search.tavily_search import WebResult
 
 logger = get_logger(__name__)
 
@@ -43,6 +50,7 @@ class AnswerGenerator:
     """
     Generates answers using Groq.
     Selects the appropriate prompt path based on CRAG confidence level.
+    Injects Short-Term and Long-Term Memory context when available.
     """
 
     def __init__(self) -> None:
@@ -54,19 +62,29 @@ class AnswerGenerator:
             max_tokens=settings.groq_max_tokens,
         )
 
+    # ── Public generate methods ───────────────────────────────────────────────
+
     def generate_from_local(
         self,
         question: str,
         graded_chunks: Sequence[GradedChunk],
         confidence: str,
         avg_score: float,
+        stm_context: str = "",
+        ltm_context: str = "",
     ) -> GeneratedAnswer:
         """HIGH confidence path: answer entirely from local documents."""
         sources_block = self._format_local_sources(graded_chunks)
+        system_prompt = self._build_system_prompt(
+            base=ANSWER_GENERATOR_SYSTEM,
+            stm_context=stm_context,
+            ltm_context=ltm_context,
+        )
         answer = self._call_llm(
-            system=ANSWER_GENERATOR_SYSTEM,
+            system=system_prompt,
             human=ANSWER_GENERATOR_HUMAN.format(
-                question=question, sources=sources_block
+                question=question,
+                sources=sources_block,
             ),
         )
         return GeneratedAnswer(
@@ -84,13 +102,21 @@ class AnswerGenerator:
         web_results: Sequence[WebResult],
         web_query: str,
         avg_score: float,
+        stm_context: str = "",
+        ltm_context: str = "",
     ) -> GeneratedAnswer:
         """LOW confidence path: answer from web results only."""
         sources_block = self._format_web_sources(web_results)
+        system_prompt = self._build_system_prompt(
+            base=ANSWER_GENERATOR_SYSTEM,
+            stm_context=stm_context,
+            ltm_context=ltm_context,
+        )
         answer = self._call_llm(
-            system=ANSWER_GENERATOR_SYSTEM,
+            system=system_prompt,
             human=ANSWER_GENERATOR_HUMAN.format(
-                question=question, sources=sources_block
+                question=question,
+                sources=sources_block,
             ),
         )
         return GeneratedAnswer(
@@ -109,13 +135,19 @@ class AnswerGenerator:
         web_results: Sequence[WebResult],
         web_query: str,
         avg_score: float,
+        stm_context: str = "",
+        ltm_context: str = "",
     ) -> GeneratedAnswer:
         """AMBIGUOUS path: fuse local docs and web results."""
         local_block = self._format_local_sources(graded_chunks, prefix="L")
         web_block = self._format_web_sources(web_results, prefix="W")
-
+        system_prompt = self._build_system_prompt(
+            base=FUSION_SYSTEM,
+            stm_context=stm_context,
+            ltm_context=ltm_context,
+        )
         answer = self._call_llm(
-            system=FUSION_SYSTEM,
+            system=system_prompt,
             human=FUSION_HUMAN.format(
                 question=question,
                 local_sources=local_block,
@@ -123,8 +155,7 @@ class AnswerGenerator:
             ),
         )
         all_sources = (
-            self._extract_source_refs(graded_chunks)
-            + [r.url for r in web_results]
+            self._extract_source_refs(graded_chunks) + [r.url for r in web_results]
         )
         return GeneratedAnswer(
             answer=answer,
@@ -135,7 +166,32 @@ class AnswerGenerator:
             web_query=web_query,
         )
 
-    # ── Private helpers ───────────────────────────────────────────────────
+    # ── Private helpers ───────────────────────────────────────────────────────
+
+    @staticmethod
+    def _build_system_prompt(
+        base: str,
+        stm_context: str = "",
+        ltm_context: str = "",
+    ) -> str:
+        """
+        Prepend memory context blocks to the base system prompt.
+
+        Order: LTM (persistent facts) → STM (recent turns) → base instructions.
+        LTM comes first so the model grounds itself in durable user facts before
+        reading the recent conversation.
+        """
+        parts: list[str] = []
+
+        if ltm_context:
+            parts.append(ltm_context)
+
+        if stm_context:
+            parts.append(stm_context)
+
+        parts.append(base)
+
+        return "\n\n".join(parts)
 
     def _call_llm(self, system: str, human: str) -> str:
         messages = [

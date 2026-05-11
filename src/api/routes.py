@@ -8,6 +8,7 @@ All heavy logic lives in graph/ or src/ modules.
 
 from __future__ import annotations
 
+import asyncio
 import time
 import uuid
 from pathlib import Path
@@ -27,6 +28,8 @@ from src.api.schemas import (
 from src.ingestion.chunker import BookChunker
 from src.ingestion.document_loader import DocumentLoader
 from src.ingestion.embedder import Embedder
+from src.memory.long_term import LongTermMemory
+from src.memory.short_term import ShortTermMemory
 from src.utils.audit_logger import get_audit_logger
 from src.utils.config import get_settings
 from src.utils.logger import get_logger
@@ -42,15 +45,45 @@ async def ask(body: AskRequest) -> AskResponse:
     """
     Submit a medical question. The CRAG graph handles retrieval,
     grading, optional web search, and answer generation.
+
+    Pass `session_id` to continue an existing conversation (Short-Term Memory).
+    Pass `user_id` to personalise answers with Long-Term Memory facts.
+    A new `session_id` is minted automatically if one is not provided.
     """
     request_id = str(uuid.uuid4())
     t0 = time.time()
 
-    logger.info("ask_request", request_id=request_id, question=body.question[:80])
+    # ── Memory bootstrap ──────────────────────────────────────────────────────
+    # Use provided IDs or mint safe defaults so the rest of the code never
+    # needs to handle None.
+    session_id: str = body.session_id or str(uuid.uuid4())
+    user_id: str = body.user_id or "anonymous"
 
+    stm = ShortTermMemory(session_id=session_id, user_id=user_id)
+    ltm = LongTermMemory(user_id=user_id)
+
+    # Load memory context BEFORE invoking the graph so the LLM can use it.
+    stm_context: str = stm.format_for_prompt()
+    ltm_context: str = ltm.format_for_prompt()
+
+    logger.info(
+        "ask_request",
+        request_id=request_id,
+        session_id=session_id,
+        user_id=user_id,
+        question=body.question[:80],
+        has_stm=bool(stm_context),
+        has_ltm=bool(ltm_context),
+    )
+
+    # ── Graph invocation ──────────────────────────────────────────────────────
     initial_state: CRAGState = {
         "question": body.question,
         "request_id": request_id,
+        "session_id": session_id,
+        "user_id": user_id,
+        "stm_context": stm_context,
+        "ltm_context": ltm_context,
         "_start_time": t0,
     }
 
@@ -70,6 +103,29 @@ async def ask(body: AskRequest) -> AskResponse:
             detail="Graph completed without a result.",
         )
 
+    # ── Persist Short-Term Memory (blocking, fast) ────────────────────────────
+    stm.save_turn(
+        request_id=request_id,
+        question=body.question,
+        answer=result.answer,
+        confidence=result.confidence,
+        avg_relevance_score=result.avg_relevance_score,
+        web_triggered=result.web_triggered,
+        sources_used=result.sources_used,
+    )
+
+    # ── Persist Long-Term Memory (non-blocking, involves an LLM call) ─────────
+    # Run in a thread so we don't delay the HTTP response.
+    asyncio.create_task(
+        asyncio.to_thread(
+            ltm.extract_and_save,
+            body.question,
+            result.answer,
+            body.question,
+        )
+    )
+
+    # ── Build response ────────────────────────────────────────────────────────
     crag_trace = [
         ChunkTrace(
             text_preview=c.text[:120],
@@ -82,6 +138,7 @@ async def ask(body: AskRequest) -> AskResponse:
 
     return AskResponse(
         request_id=request_id,
+        session_id=session_id,          # Return so the frontend can persist it
         question=body.question,
         answer=result.answer,
         confidence=result.confidence,
@@ -109,7 +166,6 @@ async def ingest(file: UploadFile = File(...)) -> IngestResponse:
             detail=f"Unsupported file type '{ext}'. Supported: {_SUPPORTED_EXTENSIONS}",
         )
 
-    # Save to a temp path for processing
     tmp_path = Path(f"/tmp/{uuid.uuid4()}{ext}")
     try:
         content = await file.read()
@@ -167,3 +223,25 @@ async def audit(n: int = Query(default=50, ge=1, le=500)) -> AuditResponse:
     """Return the last n CRAG decision records from the audit log."""
     records = get_audit_logger().tail(n)
     return AuditResponse(records=records, total=len(records))
+
+
+@router.get("/memory/{user_id}")
+async def get_user_memory(user_id: str) -> dict:
+    """
+    Inspect all Long-Term Memory facts stored for a given user.
+    Useful for debugging and building profile UIs.
+    """
+    ltm = LongTermMemory(user_id=user_id)
+    facts = ltm.get_facts()
+    return {"user_id": user_id, "fact_count": len(facts), "facts": facts}
+
+
+@router.delete("/memory/{user_id}")
+async def clear_user_memory(user_id: str) -> dict:
+    """
+    Delete all Long-Term Memory facts for a user (GDPR / reset).
+    Does NOT delete conversation history — only extracted facts.
+    """
+    ltm = LongTermMemory(user_id=user_id)
+    deleted = ltm.clear_facts()
+    return {"user_id": user_id, "deleted_facts": deleted}
