@@ -1,0 +1,51 @@
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
+Thumbs.db
+
+# Git
+.git/
+.gitignore
+.gitattributes
+
+# Docker files themselves (no need to copy into image)
+Dockerfile
+docker-compose.yml
+.dockerignore
+
+# Secrets — never bake into the image
+.env
+
+# Docs
+README.md
+LICENSE
+
+# Local data (mounted as volumes at runtime)
+data/vectorstore/
+logs/
+
+# Test files
+tests/
