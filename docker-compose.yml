@@ -1,67 +1,36 @@
-services:
+version: "3.9"
 
+services:
   api:
     build:
       context: .
       dockerfile: Dockerfile
       target: runtime
-    image: medical-crag:latest
-    container_name: medical-crag-api
+    container_name: medical_crag_api
     restart: unless-stopped
-
     ports:
       - "8000:8000"
-
-    environment:
-      # ── LLM ──────────────────────────────────────────────────────────────
-      - GROQ_API_KEY=${GROQ_API_KEY}
-      - GROQ_MODEL=${GROQ_MODEL:-llama-3.1-8b-instant}
-      - GROQ_TEMPERATURE=${GROQ_TEMPERATURE:-0.0}
-      - GROQ_MAX_TOKENS=${GROQ_MAX_TOKENS:-800}
-
-      # ── Web Search ────────────────────────────────────────────────────────
-      - TAVILY_API_KEY=${TAVILY_API_KEY}
-      - TAVILY_MAX_RESULTS=${TAVILY_MAX_RESULTS:-3}
-
-      # ── Vector Store ──────────────────────────────────────────────────────
-      - CHROMA_PATH=/app/data/vectorstore
-      - COLLECTION_NAME=${COLLECTION_NAME:-medical_docs}
-      - EMBEDDING_MODEL=${EMBEDDING_MODEL:-pritamdeka/S-PubMedBert-MS-MARCO}
-
-      # ── Retrieval & Chunking ──────────────────────────────────────────────
-      - TOP_K=${TOP_K:-5}
-      - CHUNK_SIZE=${CHUNK_SIZE:-1200}
-      - CHUNK_OVERLAP=${CHUNK_OVERLAP:-150}
-
-      # ── CRAG Thresholds ───────────────────────────────────────────────────
-      - HIGH_CONF_THRESHOLD=${HIGH_CONF_THRESHOLD:-0.7}
-      - LOW_CONF_THRESHOLD=${LOW_CONF_THRESHOLD:-0.4}
-
-      # ── API ───────────────────────────────────────────────────────────────
-      - API_HOST=0.0.0.0
-      - API_PORT=8000
-      - API_WORKERS=${API_WORKERS:-1}
-
-      # ── Logging ───────────────────────────────────────────────────────────
-      - LOG_LEVEL=${LOG_LEVEL:-INFO}
-      - AUDIT_LOG_PATH=/app/logs/crag_audit.jsonl
-
+    env_file:
+      - .env
     volumes:
-      # Persist the ChromaDB vector store between restarts
-      - vectorstore:/app/data/vectorstore
+      # Persist the ChromaDB vectorstore between restarts
+      - chroma_data:/app/data/vectorstore
       # Persist audit logs
-      - logs:/app/logs
-      # Mount raw books folder so you can drop files and ingest them
-      - ./data/raw:/app/data/raw
-
+      - log_data:/app/logs
+    environment:
+      # Override path-sensitive env vars to match container paths
+      CHROMA_PATH: /app/data/vectorstore
+      AUDIT_LOG_PATH: /app/logs/crag_audit.jsonl
+      API_HOST: 0.0.0.0
+      API_PORT: "8000"
     healthcheck:
       test: ["CMD", "python", "-c",
              "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/health')"]
       interval: 30s
       timeout: 10s
-      start_period: 60s
       retries: 3
+      start_period: 60s
 
 volumes:
-  vectorstore:
-  logs:
+  chroma_data:
+  log_data:
